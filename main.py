@@ -2,23 +2,29 @@ import joblib
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+import os
 
-# FastAPI app initialize karein
 app = FastAPI(
     title="Blood Urgency Prediction API",
-    description="API to predict blood urgency level based on patient vitals and medical history.",
     version="1.0"
 )
 
-# 1. Saved Model aur Encoders load karein
+# Debugging ke liye check karein ki files folder mein hain ya nahi
+print("Current Directory Files:", os.listdir('.'))
+
+# 1. Model aur Encoders load karna safe tareeqe se
 try:
     model = joblib.load('urgency_model.pkl')
-    encoders = joblib.load('feature_encoders.pkl')
-    print("Model aur Encoders successfully load ho gaye hain!")
+    print("urgency_model.pkl successfully loaded!")
 except Exception as e:
-    print(f"Error loading model files: {e}")
+    print(f"Error loading model: {e}")
 
-# 2. Incoming Request Data ke liye Pydantic Model (Schema)
+try:
+    encoders = joblib.load('feature_encoders.pkl')
+    print("feature_encoders.pkl successfully loaded!")
+except Exception as e:
+    print(f"Error loading encoders: {e}")
+
 class PatientInput(BaseModel):
     age: int
     gender: str
@@ -39,22 +45,24 @@ class PatientInput(BaseModel):
 
 @app.get("/")
 def home():
-    return {"message": "Blood Urgency Prediction API is running live!"}
+    return {"message": "API is running live!"}
 
 @app.post("/predict")
 def predict_urgency(data: PatientInput):
+    # Check karein ki encoders load hue ya nahi
+    if 'encoders' not in globals() or encoders is None:
+        raise HTTPException(status_code=500, detail="Encoders file could not be loaded on startup.")
+    
     try:
-        # Incoming text data ko LabelEncoder se safely transform karne ka function
         def safe_transform(encoder_key, value):
+            if encoder_key not in encoders:
+                return 0
             le = encoders[encoder_key]
-            # Agar koi nayi category aa jaye jo training mein nahi thi, toh handle karne ke liye
             if value in le.classes_:
                 return le.transform([value])[0]
             else:
-                # Default pehla class ya 0 use kar sakte hain
                 return 0
 
-        # Input data ko DataFrame mein convert karein
         input_df = pd.DataFrame([{
             'age': data.age,
             'gender': safe_transform('gender', data.gender),
@@ -74,12 +82,13 @@ def predict_urgency(data: PatientInput):
             'required_within_hours': data.required_within_hours
         }])
 
-        # Model se prediction nikalwana (Numeric format mein aayega)
         prediction_encoded = model.predict(input_df)[0]
         
-        # Numeric result ko wapas original text urgency level (Low, Medium, High, Critical) mein convert karna
-        target_encoder = encoders['urgency_level']
-        urgency_result = target_encoder.inverse_transform([prediction_encoded])[0]
+        target_encoder = encoders.get('urgency_level')
+        if target_encoder:
+            urgency_result = target_encoder.inverse_transform([prediction_encoded])[0]
+        else:
+            urgency_result = str(prediction_encoded)
 
         return {
             "status": "success",
