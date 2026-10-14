@@ -14,7 +14,7 @@ print("Current Directory Files:", os.listdir('.'))
 
 # 1. Model aur Encoders load karna safe tareeqe se
 try:
-    model = joblib.load('urgency_model.pkl')
+    model = joblib.load('logistic_regression_model.pkl')
     print("urgency_model.pkl successfully loaded!")
 except Exception as e:
     print(f"Error loading model: {e}")
